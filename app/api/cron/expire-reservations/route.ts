@@ -5,7 +5,12 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const isVercelCron = req.headers.has("x-vercel-cron") || req.headers.has("x-vercel-cron-job");
+
+  if (
+    authHeader !== `Bearer ${process.env.CRON_SECRET}` &&
+    !isVercelCron
+  ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { redis } from "@/lib/redis";
+
+const IDENTITY_CACHE_TTL_SECONDS = 24 * 60 * 60;
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +16,19 @@ export async function POST(
     // ── Idempotency ─────────────────────────────────────────────────────────
     const idempotencyKey = req.headers.get("Idempotency-Key");
     if (idempotencyKey) {
+      try {
+        const cachedResponse = await redis.get<string>(`idempotency:${idempotencyKey}`);
+        if (cachedResponse) {
+          const parsed = JSON.parse(cachedResponse) as {
+            status: number;
+            body: unknown;
+          };
+          return NextResponse.json(parsed.body, { status: parsed.status });
+        }
+      } catch (redisError) {
+        console.warn("Redis idempotency read failed:", redisError);
+      }
+
       const existing = await prisma.idempotencyRecord.findUnique({
         where: { key: idempotencyKey },
       });
@@ -70,15 +86,26 @@ export async function POST(
         code: "RESERVATION_EXPIRED",
       };
       if (idempotencyKey) {
+        const expiresAt = new Date(Date.now() + IDENTITY_CACHE_TTL_SECONDS * 1000);
         await prisma.idempotencyRecord.upsert({
           where: { key: idempotencyKey },
           create: {
             key: idempotencyKey,
             response: { status: 410, body: responseBody },
-            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            expiresAt,
           },
           update: {},
         });
+
+        try {
+          await redis.set(
+            `idempotency:${idempotencyKey}`,
+            JSON.stringify({ status: 410, body: responseBody }),
+            { ex: IDENTITY_CACHE_TTL_SECONDS }
+          );
+        } catch (redisError) {
+          console.warn("Redis idempotency write failed:", redisError);
+        }
       }
       return NextResponse.json(responseBody, { status: 410 });
     }
@@ -118,15 +145,26 @@ export async function POST(
     };
 
     if (idempotencyKey) {
+      const expiresAt = new Date(Date.now() + IDENTITY_CACHE_TTL_SECONDS * 1000);
       await prisma.idempotencyRecord.upsert({
         where: { key: idempotencyKey },
         create: {
           key: idempotencyKey,
           response: { status: 200, body: responseBody },
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          expiresAt,
         },
         update: {},
       });
+
+      try {
+        await redis.set(
+          `idempotency:${idempotencyKey}`,
+          JSON.stringify({ status: 200, body: responseBody }),
+          { ex: IDENTITY_CACHE_TTL_SECONDS }
+        );
+      } catch (redisError) {
+        console.warn("Redis idempotency write failed:", redisError);
+      }
     }
 
     return NextResponse.json(responseBody);
