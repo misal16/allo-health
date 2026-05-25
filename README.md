@@ -6,7 +6,7 @@ A Next.js App Router application that implements inventory reservation for retai
 
 ## Live Demo
 
-Replace this with your deployed Vercel URL once the project is live.
+Live app: https://allo-health-bice.vercel.app/products
 
 ---
 
@@ -80,7 +80,7 @@ Open `http://localhost:3000/products`.
 
 Expiry is handled in two ways:
 
-1. **Vercel Cron job** calls `/api/cron/expire-reservations` every minute and marks expired reservations as `EXPIRED`, releasing reserved stock.
+1. **Vercel Cron job** calls `/api/cron/expire-reservations` once per day on Hobby plan and marks expired reservations as `EXPIRED`, releasing reserved stock.
 2. **Lazy cleanup** runs in `GET /api/products` and the products page before reading stock, so availability stays accurate even between cron runs.
 
 This keeps the system consistent without requiring a separate background worker.
@@ -114,11 +114,12 @@ If the same key is reused, the server returns the cached response from the `Idem
 
 ## Deployment notes
 
-- `vercel.json` defines a cron job that runs every minute:
+- `vercel.json` defines a cron job that runs once per day on the Hobby plan:
   - `path: /api/cron/expire-reservations`
-  - `schedule: "* * * * *"`
+  - `schedule: "0 0 * * *"`
 - In Vercel, set `CRON_SECRET` as a project environment variable.
-- If you want, configure the Cron job manually in the Vercel dashboard and pass the same secret header.
+- `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are also required in Vercel for idempotency caching.
+- The live URL is `https://allo-health-bice.vercel.app/products`.
 
 ---
 
